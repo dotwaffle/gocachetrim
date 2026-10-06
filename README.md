@@ -10,6 +10,8 @@ This tool keeps the cache at a fixed size, and does not delete entries that a bu
 
 ## Install
 
+gocachetrim requires Go 1.25 or later.
+
 ```sh
 go install github.com/dotwaffle/gocachetrim@latest
 ```

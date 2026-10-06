@@ -22,7 +22,7 @@ func TestGoBuildAfterTrim(t *testing.T) {
 	cache := t.TempDir()
 	mod := t.TempDir()
 	files := map[string]string{
-		"go.mod":  "module example.com/hello\n\ngo 1.26\n",
+		"go.mod":  "module example.com/hello\n\ngo 1.25\n",
 		"main.go": "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"hello\") }\n",
 	}
 	for name, body := range files {
