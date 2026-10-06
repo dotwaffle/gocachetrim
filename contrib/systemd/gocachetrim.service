@@ -1,0 +1,31 @@
+# systemd user unit for the gocachetrim daemon.
+#
+# To install it, copy this file to ~/.config/systemd/user/, then run:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now gocachetrim.service
+#
+# To change the limits, add flags to ExecStart, or run
+# "systemctl --user edit gocachetrim.service" to override ExecStart.
+
+[Unit]
+Description=Trim the Go build cache by age and size
+Documentation=https://github.com/dotwaffle/gocachetrim
+
+[Service]
+Type=exec
+# The cache path is explicit, because the PATH of a user service often
+# does not include the go command, and without -cache the tool runs
+# "go env GOCACHE".
+ExecStart=%h/go/bin/gocachetrim -daemon -cache %h/.cache/go-build
+Restart=on-failure
+RestartSec=1min
+# A trim of about 300,000 entries has a live heap of about 75MiB. This
+# limit makes the garbage collector run before the heap doubles.
+Environment=GOMEMLIMIT=128MiB
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target
