@@ -155,3 +155,8 @@ To tune a different filesystem, change `-workers`.
 
 gocachetrim builds on Linux, macOS, FreeBSD, NetBSD, OpenBSD, DragonFly BSD and illumos.
 On other systems, such as Windows, it builds but stops with an error, because it uses `flock` and `st_blocks`.
+
+## License
+
+gocachetrim uses the BSD 3-Clause license.
+The full text is in `LICENSE`.
