@@ -25,8 +25,9 @@ func isEntryName(name string) bool {
 }
 
 // scan returns the entries in all 256 subdirectories of the cache. It
-// ignores all other files. It reports errors for subdirectories and
-// entries to errs, and does not stop for them.
+// ignores all other files. It reports errors for subdirectories, entries,
+// and the files in executable entries to errs, and does not stop for them.
+// A file that it cannot read adds no size to its entry.
 func scan(ctx context.Context, root *os.Root, m Metric, workers int, errs *errorLog) []Entry {
 	var bySub [256][]Entry
 	forEachSub(ctx, workers, func(sub uint8) {
@@ -113,9 +114,14 @@ func entrySize(dir *os.Root, name string, fi fs.FileInfo, m Metric, errs *errorL
 			errs.report(fmt.Errorf("read %s: %w", name, err))
 		}
 		for _, n := range names {
-			if fi, err := exe.Lstat(n); err == nil {
-				size += sizeOf(fi, m)
+			fi, err := exe.Lstat(n)
+			if err != nil {
+				if !errors.Is(err, fs.ErrNotExist) {
+					errs.report(fmt.Errorf("%s: %w", name, err))
+				}
+				continue
 			}
+			size += sizeOf(fi, m)
 		}
 		return size, true
 	}
