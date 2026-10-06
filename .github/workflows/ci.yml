@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          # The module has no go.sum, because it has no dependencies.
+          cache-dependency-path: go.mod
+      - name: Check go.mod
+        run: go mod tidy -diff
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race ./...
+
+  cross-vet:
+    # The tests run on Linux and macOS only. Vet the other platforms so
+    # that the build tags for flock and st_blocks stay correct.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [freebsd, netbsd, openbsd, dragonfly, illumos, windows]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache-dependency-path: go.mod
+      - name: Vet
+        env:
+          GOOS: ${{ matrix.goos }}
+        run: go vet ./...
+
+  golangci-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache-dependency-path: go.mod
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          # A new minor version can add checks, so update it on purpose.
+          version: v2.14
+
+  rumdl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: rvben/rumdl@v0
+        with:
+          report-type: annotations
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: stable
+          cache-dependency-path: go.mod
