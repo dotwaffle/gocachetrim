@@ -120,6 +120,7 @@ func TestSelect(t *testing.T) {
 	}
 	tests := []struct {
 		name     string
+		sizes    []int64 // sizes of entries 1 to 5, if not all 10
 		maxAge   time.Duration
 		maxSize  int64
 		minAge   time.Duration
@@ -128,29 +129,48 @@ func TestSelect(t *testing.T) {
 	}{
 		{name: "no limits"},
 		{name: "age only", maxAge: 3 * day, wantAge: []int{5}},
+		{name: "age at cutoff", maxAge: 2 * day, wantAge: []int{5}},
+		{name: "max age less than min age", maxAge: time.Hour, maxSize: 5, minAge: 4 * time.Hour, wantAge: []int{5, 4, 3, 2}},
 		{name: "size oldest first", maxSize: 25, minAge: time.Hour, wantSize: []int{5, 4, 3}},
-		{name: "size under limit", maxSize: 50},
+		{name: "size zero-size entries", sizes: []int64{0, 10, 0, 10, 0}, maxSize: 5, minAge: time.Hour, wantSize: []int{5, 4, 3, 2}},
+		{name: "size under limit", maxSize: 60},
 		{name: "size at limit", maxSize: 50, minAge: time.Hour},
 		{name: "min age stops size", maxSize: 5, minAge: 4 * time.Hour, wantSize: []int{5, 4, 3}},
 		{name: "age then size", maxAge: 3 * day, maxSize: 20, minAge: time.Hour, wantAge: []int{5}, wantSize: []int{4, 3}},
-		{name: "age satisfies size", maxAge: 1 * day, maxSize: 30, minAge: time.Hour, wantAge: []int{4, 5}},
+		{name: "age satisfies size", maxAge: 1 * day, maxSize: 30, minAge: time.Hour, wantAge: []int{5, 4}},
 		{name: "min age equal to entry age", maxSize: 5, minAge: 3 * time.Hour, wantSize: []int{5, 4, 3, 2}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Give Select the entries newest first, so that it must sort
+			// them.
 			in := slices.Clone(entries)
+			var total int64 = 50
+			if tt.sizes != nil {
+				total = 0
+				for i, size := range tt.sizes {
+					in[i].Size = size
+					total += size
+				}
+			}
 			p := Select(in, now, tt.maxAge, tt.maxSize, tt.minAge)
-			if got := ids(p.Age); !slices.Equal(got, tt.wantAge) {
+			if got := ids(p.Age()); !slices.Equal(got, tt.wantAge) {
 				t.Errorf("Age = %v, want %v", got, tt.wantAge)
 			}
-			if got := ids(p.Size); !slices.Equal(got, tt.wantSize) {
+			if got := ids(p.Size()); !slices.Equal(got, tt.wantSize) {
 				t.Errorf("Size = %v, want %v", got, tt.wantSize)
 			}
-			if p.Total != 50 {
-				t.Errorf("Total = %d, want 50", p.Total)
+			if p.Total != total {
+				t.Errorf("Total = %d, want %d", p.Total, total)
 			}
-			if !slices.Equal(in, entries) {
-				t.Errorf("Select changed its input")
+			if got := ids(in); !slices.Equal(got, []int{5, 4, 3, 2, 1}) {
+				t.Errorf("input after Select = %v, want sorted oldest first", got)
+			}
+			if &p.Entries[0] != &in[0] || len(p.Entries) != len(in) {
+				t.Error("Entries does not share storage with the input")
+			}
+			if age := p.Age(); cap(age) != len(age) {
+				t.Errorf("cap(Age) = %d, want %d", cap(age), len(age))
 			}
 		})
 	}
@@ -163,10 +183,10 @@ func TestSelectTieOrder(t *testing.T) {
 		{Sub: 1, Name: entryName(2, 'd'), MTime: mt, Size: 1},
 		{Sub: 1, Name: entryName(1, 'd'), MTime: mt, Size: 1},
 	}
-	p := Select(entries, now, 0, 1, 0)
 	want := []Entry{entries[2], entries[1]}
-	if !slices.Equal(p.Size, want) {
-		t.Errorf("Size = %v, want %v", p.Size, want)
+	p := Select(entries, now, 0, 1, 0)
+	if !slices.Equal(p.Size(), want) {
+		t.Errorf("Size = %v, want %v", p.Size(), want)
 	}
 }
 
@@ -396,11 +416,11 @@ func TestRemoveKeepsUsedEntry(t *testing.T) {
 	p := put(t, dir, "00/"+entryName(1, 'd'), 100, time.Hour)
 	// The scan saw an older mtime, so the go command used the entry after
 	// the scan.
-	v := victim{Entry: Entry{Sub: 0, Name: entryName(1, 'd'), MTime: now.Add(-day), Size: 100}}
+	v := Entry{Sub: 0, Name: entryName(1, 'd'), MTime: now.Add(-day), Size: 100}
 	var r Result
 	errs := &errorLog{log: slog.New(slog.DiscardHandler)}
 	sub := openRoot(t, filepath.Join(dir, "00"))
-	removeOne(sub, v, errs, &r)
+	removeOne(sub, v, false, errs, &r)
 	if r.Kept != 1 || r.AgeDeleted != 0 || !exists(p) {
 		t.Errorf("removeOne = %+v, exists %v; want entry kept", r, exists(p))
 	}
@@ -408,7 +428,7 @@ func TestRemoveKeepsUsedEntry(t *testing.T) {
 	// An entry that is already gone is not an error and not a deletion.
 	v.Name = entryName(2, 'd')
 	r = Result{}
-	removeOne(sub, v, errs, &r)
+	removeOne(sub, v, false, errs, &r)
 	if r != (Result{Gone: 1, GoneBytes: 100}) || errs.n.Load() != 0 {
 		t.Errorf("removeOne of missing entry = %+v, %d errors", r, errs.n.Load())
 	}
@@ -446,7 +466,7 @@ func TestRemoveAllGoneSubdir(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, "07")); err != nil {
 		t.Fatal(err)
 	}
-	plan := Plan{Size: []Entry{{Sub: 7, Name: entryName(1, 'd'), MTime: now.Add(-day), Size: 100}}}
+	plan := Plan{Entries: []Entry{{Sub: 7, Name: entryName(1, 'd'), MTime: now.Add(-day), Size: 100}}, sizeEnd: 1}
 	var res Result
 	errs := &errorLog{log: slog.New(slog.DiscardHandler)}
 	removeAll(t.Context(), openRoot(t, dir), plan, 2, errs, &res)

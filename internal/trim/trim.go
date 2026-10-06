@@ -112,52 +112,66 @@ type Entry struct {
 // subName returns the name of a cache subdirectory, "00" to "ff".
 func subName(sub uint8) string { return fmt.Sprintf("%02x", sub) }
 
-// Plan is the set of entries that a trim deletes.
+// Plan is the result of Select. Entries shares storage with the input of
+// Select. Treat Entries and the slices from Age and Size as read-only.
 type Plan struct {
-	Age   []Entry // entries older than MaxAge
-	Size  []Entry // oldest remaining entries, deleted to meet MaxSize
-	Total int64   // total size of all scanned entries
+	// Entries holds all scanned entries, in compareAge order: oldest
+	// first.
+	Entries []Entry
+	// Total is the total size of Entries.
+	Total int64
+
+	ageEnd  int // Entries[:ageEnd] are selected by MaxAge
+	sizeEnd int // Entries[ageEnd:sizeEnd] are selected by MaxSize
 }
 
-// Select returns the entries to delete. First it selects each entry with
-// an mtime before now-maxAge. Then, if the other entries are larger than
-// maxSize, it selects the oldest of them until the total is not more than
-// maxSize, but no entry with an mtime after now-minAge. A zero maxAge or
-// maxSize disables that step.
+// Age returns the entries that MaxAge selects, oldest first. The capacity
+// of the result is its length, so an append to it cannot change Size.
+func (p Plan) Age() []Entry { return p.Entries[:p.ageEnd:p.ageEnd] }
+
+// Size returns the entries that MaxSize selects, oldest first.
+func (p Plan) Size() []Entry { return p.Entries[p.ageEnd:p.sizeEnd:p.sizeEnd] }
+
+// compareAge orders entries by mtime, oldest first. It orders entries with
+// the same mtime by subdirectory and name, so that the order does not
+// depend on the order of the scan.
+func compareAge(a, b Entry) int {
+	return cmp.Or(a.MTime.Compare(b.MTime), cmp.Compare(a.Sub, b.Sub), strings.Compare(a.Name, b.Name))
+}
+
+// Select sorts entries in place, oldest first, and returns the entries to
+// delete. First it selects each entry with an mtime before now-maxAge.
+// Then, if the other entries are larger than maxSize, it selects the
+// oldest of them until the total is not more than maxSize. It does not
+// select an entry with an mtime after now-minAge for maxSize. A zero
+// maxAge or maxSize disables that step.
 //
-// Select does not change entries. Plan.Age is in the input order.
-// Plan.Size is in mtime order, oldest first, and entries with the same
-// mtime are in subdirectory and name order.
+// Because the entries are oldest first, each step selects a range. The
+// age step selects a prefix, and the size step selects the range after it.
 func Select(entries []Entry, now time.Time, maxAge time.Duration, maxSize int64, minAge time.Duration) Plan {
-	var p Plan
-	var keep []Entry
-	var remain int64
-	ageCutoff := now.Add(-maxAge)
-	for _, e := range entries {
-		p.Total += e.Size
-		if maxAge > 0 && e.MTime.Before(ageCutoff) {
-			p.Age = append(p.Age, e)
-			continue
-		}
-		keep = append(keep, e)
-		remain += e.Size
+	slices.SortFunc(entries, compareAge)
+	p := Plan{Entries: entries, Total: sum(entries)}
+	if maxAge > 0 {
+		// The result is the index of the first entry with an mtime that
+		// is not before the cutoff.
+		p.ageEnd, _ = slices.BinarySearchFunc(entries, now.Add(-maxAge), func(e Entry, cutoff time.Time) int {
+			return e.MTime.Compare(cutoff)
+		})
 	}
-	if maxSize <= 0 || remain <= maxSize {
+	p.sizeEnd = p.ageEnd
+	if maxSize <= 0 {
 		return p
 	}
-
-	slices.SortFunc(keep, func(a, b Entry) int {
-		return cmp.Or(a.MTime.Compare(b.MTime), cmp.Compare(a.Sub, b.Sub), strings.Compare(a.Name, b.Name))
-	})
+	remain := p.Total - sum(p.Age())
 	floor := now.Add(-minAge)
-	// keep is in mtime order, so the first entry after the floor ends the
-	// loop: all the entries after it are also newer than the floor.
-	for _, e := range keep {
+	// The first entry after the floor ends the loop, because all the
+	// entries after it are also newer than the floor.
+	for _, e := range entries[p.ageEnd:] {
 		if remain <= maxSize || e.MTime.After(floor) {
 			break
 		}
-		p.Size = append(p.Size, e)
 		remain -= e.Size
+		p.sizeEnd++
 	}
 	return p
 }
@@ -199,12 +213,12 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 		return Result{}, err
 	}
 	plan := Select(entries, cfg.Now, cfg.MaxAge, cfg.MaxSize, cfg.MinAge)
-	cfg.Log.Debug("scan done", "entries", len(entries), "age_victims", len(plan.Age), "size_victims", len(plan.Size))
+	cfg.Log.Debug("scan done", "entries", len(entries), "age_victims", len(plan.Age()), "size_victims", len(plan.Size()))
 
 	res := Result{Scanned: len(entries), ScannedBytes: plan.Total}
 	if cfg.DryRun {
-		res.AgeDeleted, res.AgeBytes = len(plan.Age), sum(plan.Age)
-		res.SizeDeleted, res.SizeBytes = len(plan.Size), sum(plan.Size)
+		res.AgeDeleted, res.AgeBytes = len(plan.Age()), sum(plan.Age())
+		res.SizeDeleted, res.SizeBytes = len(plan.Size()), sum(plan.Size())
 	} else {
 		removeAll(ctx, root, plan, cfg.Workers, errs, &res)
 	}

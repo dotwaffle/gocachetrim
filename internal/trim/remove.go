@@ -9,22 +9,17 @@ import (
 	"sync"
 )
 
-// victim is an entry to delete, with the limit that selected it.
-type victim struct {
-	Entry
-	bySize bool
-}
-
 // removeAll deletes the entries in plan and adds the counts to res. Each
 // worker deletes the entries of whole subdirectories, because unlink takes
 // an exclusive lock on the parent directory. It stops when ctx is done.
 func removeAll(ctx context.Context, root *os.Root, plan Plan, workers int, errs *errorLog, res *Result) {
-	var bySub [256][]victim
-	for _, e := range plan.Age {
-		bySub[e.Sub] = append(bySub[e.Sub], victim{e, false})
-	}
-	for _, e := range plan.Size {
-		bySub[e.Sub] = append(bySub[e.Sub], victim{e, true})
+	// Index the entries to delete by subdirectory. The indices of each
+	// subdirectory are in ascending order, so a worker deletes the oldest
+	// entries of its subdirectory first.
+	victims := plan.Entries[:plan.sizeEnd]
+	var bySub [256][]int
+	for i, e := range victims {
+		bySub[e.Sub] = append(bySub[e.Sub], i)
 	}
 
 	var mu sync.Mutex
@@ -48,9 +43,9 @@ func removeAll(ctx context.Context, root *os.Root, plan Plan, workers int, errs 
 		}()
 		dir, err := openSub(root, sub)
 		if errors.Is(err, fs.ErrNotExist) {
-			for _, v := range bySub[sub] {
+			for _, i := range bySub[sub] {
 				r.Gone++
-				r.GoneBytes += v.Size
+				r.GoneBytes += victims[i].Size
 			}
 			return
 		}
@@ -59,19 +54,19 @@ func removeAll(ctx context.Context, root *os.Root, plan Plan, workers int, errs 
 			return
 		}
 		defer func() { _ = dir.Close() }()
-		for _, v := range bySub[sub] {
+		for _, i := range bySub[sub] {
 			if ctx.Err() != nil {
 				break
 			}
-			removeOne(dir, v, errs, &r)
+			removeOne(dir, victims[i], i >= plan.ageEnd, errs, &r)
 		}
 	})
 }
 
-// removeOne deletes one entry from its subdirectory dir, unless the go
-// command used it after the scan. An entry that is already gone counts as
-// gone, not as deleted.
-func removeOne(dir *os.Root, v victim, errs *errorLog, r *Result) {
+// removeOne deletes the entry v from its subdirectory dir, unless the go
+// command used it after the scan. bySize tells which limit selected v. An
+// entry that is already gone counts as gone, not as deleted.
+func removeOne(dir *os.Root, v Entry, bySize bool, errs *errorLog, r *Result) {
 	fi, err := dir.Lstat(v.Name)
 	if errors.Is(err, fs.ErrNotExist) {
 		r.Gone++
@@ -100,7 +95,7 @@ func removeOne(dir *os.Root, v victim, errs *errorLog, r *Result) {
 		errs.report(fmt.Errorf("%s: %w", subName(v.Sub), err))
 		return
 	}
-	if v.bySize {
+	if bySize {
 		r.SizeDeleted++
 		r.SizeBytes += v.Size
 	} else {

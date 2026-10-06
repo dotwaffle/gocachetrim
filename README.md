@@ -71,17 +71,18 @@ A trim does these steps:
    If a different trim holds the lock, log a message and stop.
 2. Read the names and the file status of all entries in the 256 subdirectories.
    Ignore all other files, for example `fuzz/`, `README` and `testexpire.txt`.
-3. Select each entry with an mtime before the current time minus `-max-age`.
-4. If the other entries are larger than `-max-size`, sort them by mtime and select the oldest entries until the total is not larger than `-max-size`.
+3. Sort all entries by mtime, oldest first, then by subdirectory and name.
+4. If `-max-age` is more than 0, select each entry with an mtime before the current time minus `-max-age`.
+5. If `-max-size` is more than 0 and the other entries are larger than `-max-size`, select the oldest of them until the total is not larger than `-max-size`.
    Do not select an entry with an mtime after the current time minus `-min-age`.
-5. Delete the selected entries.
+6. Delete the selected entries, oldest first in each subdirectory.
    Before each delete, read the mtime again.
-   If the go command used the entry after step 2, do not delete it.
-6. If `-max-age` is not more than five days and the trim is not a dry run, write the current time to `trim.txt`.
+   If the mtime is newer than in step 2, do not delete the entry.
+7. If the trim is not a dry run, was not stopped, and `-max-age` is more than 0 and not more than five days, write the current time to `trim.txt`.
    The go command then skips its own trim for 24 hours.
-7. Log a summary of the trim.
+8. Log a summary of the trim.
 
-If the cache is still larger than `-max-size` after the trim, the trim logs a warning with the difference.
+If `-max-size` is more than 0 and the cache is still larger than `-max-size` after the trim, the trim logs a warning with the difference.
 The cause can be `-min-age`, entries that a build used during the trim, or errors.
 The default `-min-age` of two hours is the one-hour mtime resolution plus one hour.
 A value less than one hour can delete entries that a running build uses, and gocachetrim then logs a warning at start.
@@ -92,7 +93,7 @@ An action entry for a deleted output entry causes a cache miss, and the go comma
 ### Size metric
 
 The `allocated` metric is the disk space of a file (`st_blocks * 512`).
-On a filesystem with compression, this value is less than the `logical` metric (`st_size`).
+Compression can make this value less than the `logical` metric (`st_size`), and block overhead can make it more.
 For example, one cache on ZFS had 177GiB of logical data in 72GiB of disk space.
 On ZFS with RAID-Z, each action entry uses about 7KiB of disk space, so 230,000 action entries use about 1.6GiB.
 
@@ -103,11 +104,12 @@ All file access goes through `os.Root`, so a symbolic link in the cache cannot c
 The lock on the cache directory does not block the go command, because the go command never locks the directory itself.
 
 The protection for running builds is best effort.
-The mtime check in step 5 and the delete are two operations, and the go command can use an entry between them.
+The mtime check in step 6 and the delete are two operations, and the go command can use an entry between them.
 The trim of the go command has the same gap.
+A use of an entry does not change its mtime if the mtime is less than one hour old, so the check does not see that use.
 A build that runs for longer than `-min-age` can also lose an entry that it read at its start.
-In both cases, the build fails because a file is missing, and the next build creates the entry again.
-Set `-min-age` to more than the duration of your longest build.
+In these cases, the build can fail because a file is missing, and the next build creates the entry again.
+Set `-min-age` to more than the duration of your longest build plus one hour.
 
 ## Run as a systemd user service
 
@@ -144,8 +146,8 @@ The memory measurement is from a test cache of the same number of empty entries.
   With 9,158 entries, one worker deleted about 20,000 entries a second, and four workers deleted about 76,000 a second.
   Eight and 32 workers were not much faster than four.
   With 32 workers that shared subdirectories, the rate decreased to 37,000 a second.
-- A trim that deletes 233,000 of the 306,000 entries has a peak live heap of about 70MiB and a peak RSS of about 160MiB.
-  With `GOMEMLIMIT=128MiB`, the peak RSS is about 127MiB, and the trim takes about 15% more time.
+- A trim that deletes 233,000 of the 306,000 entries has a peak live heap of about 50MiB and a peak RSS of about 100MiB.
+  The systemd unit sets `GOMEMLIMIT=128MiB`, which limits the RSS of a trim of a larger cache.
 
 These measurements are for ZFS only.
 Published `fs_mark` results show that XFS also gets faster with parallel unlinks, up to about eight threads, and that ext4 gets a smaller increase.

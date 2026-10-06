@@ -19,8 +19,9 @@ Type=exec
 ExecStart=%h/go/bin/gocachetrim -daemon -cache %h/.cache/go-build
 Restart=on-failure
 RestartSec=1min
-# A trim of about 300,000 entries has a live heap of about 75MiB. This
-# limit makes the garbage collector run before the heap doubles.
+# A trim of about 300,000 entries has a live heap of about 50MiB and a
+# peak RSS of about 100MiB. This limit makes the garbage collector run
+# more often for a larger cache, before the heap doubles.
 Environment=GOMEMLIMIT=128MiB
 Nice=10
 IOSchedulingClass=best-effort
