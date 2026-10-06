@@ -14,14 +14,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
-    name: test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+  # All checks run in one job, because Go setup takes more time than most
+  # of the checks. Each check after the first runs also when an earlier
+  # check fails, so that one run reports all failures.
+  check:
+    runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -32,32 +30,38 @@ jobs:
       - name: Check go.mod
         run: go mod tidy -diff
       - name: Vet
+        if: ${{ !cancelled() }}
         run: go vet ./...
       - name: Test
+        if: ${{ !cancelled() }}
         run: go test -race ./...
-
-  cross-vet:
-    # The tests run on Linux and macOS only. Vet the other platforms so
-    # that the build tags for flock and st_blocks stay correct.
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        goos: [freebsd, netbsd, openbsd, dragonfly, illumos, windows]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - name: Vet other platforms
+        # The tests run on Linux and macOS only. Vet the other platforms
+        # so that the build tags for flock and st_blocks stay correct.
+        if: ${{ !cancelled() }}
+        run: |
+          status=0
+          for goos in freebsd netbsd openbsd dragonfly illumos windows; do
+            echo "::group::GOOS=$goos"
+            GOOS=$goos go vet ./... || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
+      - uses: golangci/golangci-lint-action@v9
+        if: ${{ !cancelled() }}
         with:
-          go-version: stable
-          cache-dependency-path: go.mod
-      - name: Vet
-        env:
-          GOOS: ${{ matrix.goos }}
-        run: go vet ./...
+          # A new minor version can add checks, so update it on purpose.
+          version: v2.14
+      - name: govulncheck
+        if: ${{ !cancelled() }}
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - uses: rvben/rumdl@v0
+        if: ${{ !cancelled() }}
+        with:
+          report-type: annotations
 
-  golangci-lint:
-    runs-on: ubuntu-latest
+  test-macos:
+    runs-on: macos-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -65,25 +69,5 @@ jobs:
         with:
           go-version: stable
           cache-dependency-path: go.mod
-      - uses: golangci/golangci-lint-action@v9
-        with:
-          # A new minor version can add checks, so update it on purpose.
-          version: v2.14
-
-  rumdl:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-      - uses: rvben/rumdl@v0
-        with:
-          report-type: annotations
-
-  govulncheck:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: golang/govulncheck-action@v1
-        with:
-          go-version-input: stable
-          cache-dependency-path: go.mod
+      - name: Test
+        run: go test -race ./...
