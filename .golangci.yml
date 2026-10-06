@@ -28,12 +28,12 @@ linters:
     - modernize          # gopls modernize: slices.Contains, min/max, range-over-int, etc.
 
     # Subtle bug classes.
-    - asasalint          # detects passing []any to func(...any) (almost always a bug)
+    - asasalint          # detect []any passed as one variadic argument without expansion
     - containedctx       # struct fields must not contain context.Context
     - durationcheck      # detects time.Duration multiplication mistakes
     - exhaustive         # switch over enums must be exhaustive
     - fatcontext         # context derivation inside loops/closures (context leak)
-    - forcetypeassert    # `v := x.(T)` panics without ok-form; require comma-ok
+    - forcetypeassert    # `v := x.(T)` panics without ok-form, so require comma-ok
     - loggercheck        # slog key/value pair mismatches
     - makezero           # `make([]T, n)` followed by append is usually a bug
     - mirror             # bytes vs strings API mismatch
@@ -62,21 +62,21 @@ linters:
     - gocritic           # diagnostic + performance + style tags only (see settings)
     - misspell           # English spelling
     - nolintlint         # //nolint directives must be specific and justified
-    - revive             # opinionated set; rules listed in settings
+    - revive             # opinionated set, with the rules listed in settings
 
     # Performance: low-risk, auto-fixable.
     - perfsprint         # fmt.Sprintf → strconv.* where strictly faster (auto-fix)
 
     # Tests.
     - thelper            # test helpers must call t.Helper()
-    - tparallel          # detect tests that should call t.Parallel()
+    - tparallel          # check inappropriate use of t.Parallel
     - usetesting         # prefer t.Setenv/t.Context/t.TempDir over manual setup
 
   settings:
     govet:
       enable-all: true
       disable:
-        - fieldalignment   # noisy on systems code; address case-by-case
+        - fieldalignment   # noisy on systems code, so address case-by-case
     revive:
       severity: warning
       rules:
@@ -117,7 +117,7 @@ linters:
       disabled-checks:
         - hugeParam       # noisy for systems code that passes large structs by value
         - rangeValCopy    # same
-        - unnamedResult   # opinionated; named-vs-unnamed return values is a per-API decision
+        - unnamedResult   # opinionated: named-vs-unnamed return values is a per-API decision
     gosec:
       excludes:
         - G404            # math/rand is acceptable for non-cryptographic uses

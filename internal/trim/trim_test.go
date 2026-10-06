@@ -50,6 +50,7 @@ func put(t *testing.T, dir, rel string, size int, age time.Duration) string {
 	return p
 }
 
+// setAge sets the access time and the mtime of the file p to now-age.
 func setAge(t *testing.T, p string, age time.Duration) {
 	t.Helper()
 	mt := now.Add(-age)
@@ -58,6 +59,7 @@ func setAge(t *testing.T, p string, age time.Duration) {
 	}
 }
 
+// openRoot opens dir as a root, and closes it when the test ends.
 func openRoot(t *testing.T, dir string) *os.Root {
 	t.Helper()
 	r, err := os.OpenRoot(dir)
@@ -251,7 +253,8 @@ func TestRunIgnoresOtherFiles(t *testing.T) {
 		put(t, dir, "zz/"+entryName(4, 'd'), 10, old),
 		put(t, dir, entryName(5, 'd'), 10, old),
 	}
-	// A symlink with an entry name is not a cache entry.
+	// The scan ignores a symbolic link with an entry name, because the go
+	// command does not make symbolic links.
 	link := filepath.Join(dir, "01", entryName(6, 'a'))
 	if err := os.Symlink(keep[1], link); err != nil {
 		t.Fatal(err)
@@ -305,8 +308,7 @@ func TestRunAllocated(t *testing.T) {
 	dir := newCache(t)
 	const size = 64 << 10
 	p := filepath.Join(dir, "00", entryName(1, 'd'))
-	// Random bytes, so that no filesystem can compress the file or store
-	// it as a hole.
+	// Pseudorandom bytes reduce compression and prevent a hole.
 	b := make([]byte, size)
 	rand.NewChaCha8([32]byte{}).Read(b)
 	if err := os.WriteFile(p, b, 0o666); err != nil {
@@ -438,8 +440,8 @@ func TestRunStaysInCache(t *testing.T) {
 	dir := newCache(t)
 	outside := t.TempDir()
 	victim := put(t, outside, entryName(1, 'd'), 100, 30*day)
-	// A subdirectory that is a symbolic link to a directory outside of the
-	// cache is not followed.
+	// Run does not follow a subdirectory that is a symbolic link to a
+	// directory outside of the cache.
 	sub := filepath.Join(dir, "05")
 	if err := os.Remove(sub); err != nil {
 		t.Fatal(err)
@@ -501,7 +503,7 @@ func TestWriteTrimTimeCancel(t *testing.T) {
 		t.Errorf("trim.txt = %q after a cancel, want unchanged", b)
 	}
 
-	// After the lock is released, the write succeeds.
+	// After holder closes, the write succeeds.
 	go func() {
 		time.Sleep(3 * lockRetry)
 		_ = holder.Close()

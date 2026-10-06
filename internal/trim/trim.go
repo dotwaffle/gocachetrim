@@ -1,11 +1,11 @@
 // Package trim deletes entries from a Go build cache (GOCACHE) by age and
 // by total size.
 //
-// It uses the same entry model as cmd/go/internal/cache: each of the 256
+// It uses the same entry model as cmd/go/internal/cache. Each of the 256
 // subdirectories holds "<hex>-a" action entries and "<hex>-d" output
-// entries, and the go command sets the mtime of an entry when it uses the
-// entry, at most once per hour. A "-d" entry can also be a directory that
-// holds one cached executable.
+// entries. A "-d" entry can also be a directory that holds one cached
+// executable. When the go command uses an entry, it sets the mtime of the
+// entry, at most once per hour.
 package trim
 
 import (
@@ -27,16 +27,18 @@ import (
 type Metric int
 
 const (
-	// Allocated is the disk space of an entry (st_blocks * 512). On a
-	// filesystem with compression, this is less than Logical.
+	// Allocated is the disk space of an entry (st_blocks * 512).
+	// Compression can make it less than Logical, and block overhead can
+	// make it more.
 	Allocated Metric = iota
 	// Logical is the apparent size of an entry (st_size).
 	Logical
 )
 
-// goTrimLimit is trimLimit from cmd/go/internal/cache. When MaxAge is not
-// more than this, a trim deletes at least as much as the go command's own
-// daily trim, so Run tells the go command to skip its trim.
+// goTrimLimit is trimLimit from cmd/go/internal/cache. Run writes trim.txt
+// only if MaxAge is more than 0 and not more than this limit. Then the trim
+// selects all the entries that the daily trim of the go command deletes,
+// so the go command can skip its trim.
 const goTrimLimit = 5 * 24 * time.Hour
 
 // readmePrefix is the first line of the README that the go command writes
@@ -46,8 +48,9 @@ const readmePrefix = "This directory holds cached build artifacts from the Go bu
 // lockRetry is the time between attempts to lock trim.txt.
 const lockRetry = 10 * time.Millisecond
 
-// maxLoggedErrors is the number of per-entry errors that Run logs at the
-// warning level. Run logs the errors after this number at the debug level.
+// maxLoggedErrors is the number of reported trim errors that Run logs at
+// the warning level. Run logs the errors after this number at the debug
+// level.
 const maxLoggedErrors = 10
 
 var (
@@ -176,12 +179,13 @@ func Select(entries []Entry, now time.Time, maxAge time.Duration, maxSize int64,
 	return p
 }
 
-// Run trims the cache in cfg.Dir. It returns an error only when it cannot
-// trim at all. It reports the errors for individual entries in
-// Result.Errors.
+// Run trims the cache in cfg.Dir. It returns an error if it cannot start
+// the trim, or if ctx is done. Result.Errors counts the errors for
+// subdirectories, entries, and trim.txt.
 //
-// Run returns ErrNotCache if cfg.Dir does not have the README of a Go build
-// cache, and ErrBusy if a different trim holds the lock on the cache.
+// Run returns ErrNotCache if cfg.Dir does not have the README of a Go
+// build cache. It returns ErrBusy if a different trim holds the lock on
+// the cache.
 //
 // If ctx is done during the scan, Run returns an empty Result and
 // ctx.Err(). If ctx is done during the deletes, Run stops, and returns the
@@ -313,7 +317,7 @@ func lockDir(root *os.Root) (unlock func(), err error) {
 	return func() { _ = f.Close() }, nil
 }
 
-// errorLog counts per-entry errors and logs them. It is safe for
+// errorLog counts reported trim errors and logs them. It is safe for
 // concurrent use.
 type errorLog struct {
 	log *slog.Logger
@@ -331,7 +335,8 @@ func (l *errorLog) report(err error) {
 }
 
 // forEachSub calls fn for each of the 256 subdirectories, with at most
-// workers calls at the same time. It stops when ctx is done.
+// workers calls at the same time. When ctx is done, it stops the calls for
+// the remaining subdirectories, and waits for the active calls to return.
 func forEachSub(ctx context.Context, workers int, fn func(sub uint8)) {
 	subs := make(chan uint8)
 	var wg sync.WaitGroup

@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # All checks run in one job, because Go setup takes more time than most
-  # of the checks. Each check after the first runs also when an earlier
+  # All Linux checks run in one job, because Go setup takes more time than
+  # most of the checks. Each check after the first runs also when an earlier
   # check fails, so that one run reports all failures.
   check:
     runs-on: ubuntu-latest

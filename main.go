@@ -4,9 +4,10 @@
 // The go command marks an entry as used by setting its mtime, at most once
 // per hour. gocachetrim deletes each entry with an mtime before now minus
 // -max-age. Then, if the cache is larger than -max-size, it deletes the
-// oldest entries until the cache is not larger, but no entry with an mtime
-// after now minus -min-age. The -min-age limit protects the entries of
-// running builds, but it is best effort. The README explains the limits.
+// oldest entries until the cache is not larger. For -max-size, it does not
+// delete an entry with an mtime after now minus -min-age. The -min-age
+// limit protects the entries of running builds, but it is best effort.
+// The README explains the limits.
 //
 // Run "gocachetrim -h" for the flags.
 package main
@@ -196,8 +197,8 @@ func parseDuration(s string) (time.Duration, error) {
 	return d, nil
 }
 
-// formatDuration formats a whole number of days with a "d" suffix, and
-// other durations with time.Duration.String.
+// formatDuration formats a nonzero whole number of days with a "d" suffix,
+// and other durations with time.Duration.String.
 func formatDuration(d time.Duration) string {
 	if d != 0 && d%day == 0 {
 		return fmt.Sprintf("%dd", d/day)
@@ -206,8 +207,8 @@ func formatDuration(d time.Duration) string {
 }
 
 // sizeFlag is a flag.Value for a size in bytes. It accepts a number with
-// an optional K, M, G or T suffix for powers of 1024, and an optional "B"
-// or "iB" after the suffix, for example "10G", "512MiB" or "1.5T".
+// an optional K, M, G or T suffix for powers of 1024, for example "10G" or
+// "1.5T". An optional "B" or "iB" can follow the suffix, as in "512MiB".
 type sizeFlag int64
 
 func (s *sizeFlag) String() string { return formatSize(int64(*s)) }

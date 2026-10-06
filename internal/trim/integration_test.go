@@ -41,8 +41,8 @@ func TestGoBuildAfterTrim(t *testing.T) {
 	}
 	build()
 
-	// All entries are new, so MinAge keeps them, and the size limit
-	// cannot be met.
+	// All entries are new, so MinAge keeps them, and the trim cannot meet
+	// the size limit.
 	cfg := Config{Dir: cache, MaxSize: 1, MinAge: time.Hour, Metric: Allocated, Workers: 8, Now: time.Now()}
 	res, err := Run(t.Context(), cfg)
 	if err != nil {

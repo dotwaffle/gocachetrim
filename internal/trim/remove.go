@@ -63,9 +63,9 @@ func removeAll(ctx context.Context, root *os.Root, plan Plan, workers int, errs 
 	})
 }
 
-// removeOne deletes the entry v from its subdirectory dir, unless the go
-// command used it after the scan. bySize tells which limit selected v. An
-// entry that is already gone counts as gone, not as deleted.
+// removeOne deletes the entry v from its subdirectory dir, unless its
+// mtime has increased since the scan. bySize tells which limit selected v.
+// An entry that is already gone counts as gone, not as deleted.
 func removeOne(dir *os.Root, v Entry, bySize bool, errs *errorLog, r *Result) {
 	fi, err := dir.Lstat(v.Name)
 	if errors.Is(err, fs.ErrNotExist) {

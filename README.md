@@ -6,7 +6,7 @@ It runs once, or as a daemon that trims the cache at an interval.
 The go command trims its cache at most once a day, and only deletes entries that it has not used for five days.
 Many parallel builds, for example from coding agents, can write more than 10GiB of data an hour into the cache.
 `go clean -cache` deletes all entries, also the entries that running builds use.
-This tool keeps the cache at a fixed size, and does not delete entries that a build used recently.
+This tool keeps the cache near a fixed size, and uses the mtimes of entries to keep the entries that builds used recently.
 
 ## Install
 
@@ -43,7 +43,7 @@ gocachetrim -daemon
 | `-cache` | `go env GOCACHE` | The cache directory. |
 | `-max-age` | `3d` | Delete entries not used for this duration. `0` disables the age limit. |
 | `-max-size` | `10G` | Delete the oldest entries until the cache is not larger than this size. `0` disables the size limit. |
-| `-min-age` | `2h` | Never delete entries used within this duration to meet `-max-size`. |
+| `-min-age` | `2h` | Never delete an entry with an mtime within this duration to meet `-max-size`. |
 | `-size-metric` | `allocated` | Measure sizes as `allocated` disk space or `logical` file size. |
 | `-workers` | `8` | The number of concurrent scan and delete workers. |
 | `-daemon` | off | Trim now, then again at each `-interval`, until SIGINT or SIGTERM. |
@@ -54,6 +54,10 @@ gocachetrim -daemon
 A duration uses the syntax of `time.ParseDuration`, or a number of days with a `d` suffix, for example `1.5d`.
 A size is a number of bytes with an optional `K`, `M`, `G` or `T` suffix for powers of 1024, for example `10G` or `512MiB`.
 
+At least one of `-max-age` and `-max-size` must be more than 0.
+If `-max-age` is more than 0, it must be at least `-min-age`.
+`-workers` must be at least 1, and `-interval` must be more than 0.
+
 Without `-cache`, gocachetrim runs `go env GOCACHE`.
 It stops with an error if `GOCACHE` is `off` or `GOCACHEPROG` is set, because then the go command does not use a cache directory.
 
@@ -63,7 +67,8 @@ The cache has 256 subdirectories, `00` to `ff`.
 Each subdirectory holds action entries (`<hash>-a`, 175 bytes each) and output entries (`<hash>-d`).
 An output entry can also be a directory that holds one cached executable.
 When the go command uses an entry, it sets the mtime of the entry to the current time.
-It does this only if the mtime is more than one hour old, so the mtime can be up to one hour before the last use.
+It does this only if the mtime is at least one hour old.
+Thus the mtime can be up to one hour before the last use.
 
 A trim does these steps:
 
@@ -87,7 +92,7 @@ The cause can be `-min-age`, entries that a build used during the trim, or error
 The default `-min-age` of two hours is the one-hour mtime resolution plus one hour.
 A value less than one hour can delete entries that a running build uses, and gocachetrim then logs a warning at start.
 
-Step 4 sorts action entries and output entries together, by mtime, and does not keep pairs together.
+Step 3 sorts action entries and output entries together, and does not keep pairs together.
 An action entry for a deleted output entry causes a cache miss, and the go command builds the output again.
 
 ### Size metric
@@ -129,11 +134,11 @@ Read the log with `journalctl --user -u gocachetrim`.
 
 | Status | Meaning |
 | --- | --- |
-| 0 | The trim completed. Status 0 also applies when a different trim held the lock, and when the cache is still over `-max-size` after the trim. |
-| 1 | The trim failed, or it could not read or delete one or more entries. |
+| 0 | The trim completed. Status 0 also applies to `-h`, when a different trim held the lock, and when the cache is still over `-max-size` after the trim. |
+| 1 | The trim failed, it could not read or delete one or more entries, or a signal stopped a one-shot trim. |
 | 2 | A flag or an argument is not valid. |
 
-In daemon mode, an error in one trim is logged, and the next trim starts at the next interval.
+In daemon mode, the daemon logs an error in one trim, and starts the next trim at the next interval.
 The daemon exits with status 0 after SIGINT or SIGTERM.
 
 ## Performance
@@ -147,7 +152,9 @@ The memory measurement is from a test cache of the same number of empty entries.
   Eight and 32 workers were not much faster than four.
   With 32 workers that shared subdirectories, the rate decreased to 37,000 a second.
 - A trim that deletes 233,000 of the 306,000 entries has a peak live heap of about 50MiB and a peak RSS of about 100MiB.
-  The systemd unit sets `GOMEMLIMIT=128MiB`, which limits the RSS of a trim of a larger cache.
+  The systemd unit sets `GOMEMLIMIT=128MiB`.
+  This is a soft limit for the Go runtime.
+  It makes the garbage collector run more often, but it does not limit the RSS.
 
 These measurements are for ZFS only.
 Published `fs_mark` results show that XFS also gets faster with parallel unlinks, up to about eight threads, and that ext4 gets a smaller increase.

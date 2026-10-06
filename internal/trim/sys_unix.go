@@ -24,8 +24,8 @@ func allocated(fi fs.FileInfo) int64 {
 
 // tryLock takes an exclusive flock(2) lock on f without blocking, the same
 // lock type that the go command uses for trim.txt. It returns
-// errWouldBlock when a different process holds the lock. The lock is
-// released when f is closed.
+// errWouldBlock when a different process holds the lock. A close of f
+// releases the lock.
 func tryLock(f *os.File) error {
 	for {
 		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)

@@ -13,15 +13,15 @@ Documentation=https://github.com/dotwaffle/gocachetrim
 
 [Service]
 Type=exec
-# The cache path is explicit, because the PATH of a user service often
-# does not include the go command, and without -cache the tool runs
-# "go env GOCACHE".
+# Without -cache, the tool runs "go env GOCACHE". The PATH of a user
+# service often does not include the go command, so set -cache.
 ExecStart=%h/go/bin/gocachetrim -daemon -cache %h/.cache/go-build
 Restart=on-failure
 RestartSec=1min
 # A trim of about 300,000 entries has a live heap of about 50MiB and a
-# peak RSS of about 100MiB. This limit makes the garbage collector run
-# more often for a larger cache, before the heap doubles.
+# peak RSS of about 100MiB. GOMEMLIMIT is a soft limit for the Go
+# runtime. It makes the garbage collector run more often for a larger
+# cache, but it does not limit the RSS.
 Environment=GOMEMLIMIT=128MiB
 Nice=10
 IOSchedulingClass=best-effort
