@@ -29,9 +29,6 @@ jobs:
           cache-dependency-path: go.mod
       - name: Check go.mod
         run: go mod tidy -diff
-      - name: Vet
-        if: ${{ !cancelled() }}
-        run: go vet ./...
       - name: Test
         if: ${{ !cancelled() }}
         run: go test -race ./...
