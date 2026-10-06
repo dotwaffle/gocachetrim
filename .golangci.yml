@@ -1,0 +1,152 @@
+# golangci-lint v2 configuration for gocachetrim.
+# Standard correctness checks plus resource, context, security, and
+# dependency rules.
+
+version: "2"
+
+run:
+  # Allow time for a cold CI analysis cache.
+  timeout: 10m
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    # Resource leak prevention: each catches a specific defect class.
+    - bodyclose          # http.Response.Body must be closed
+    - noctx              # exec.CommandContext, http.NewRequestWithContext
+    - contextcheck       # ctx propagation across calls
+
+    # Error handling correctness.
+    - errorlint          # use errors.Is / errors.As, %w wrapping
+    - errname            # error types end in Error, vars start with Err/err
+    - nilerr             # don't return nil after checking err != nil
+
+    # Modern Go.
+    - copyloopvar        # detects the now-unnecessary `x := x` loop var copy
+    - intrange           # prefer `for i := range n` over `for i := 0; i < n; i++`
+    - modernize          # gopls modernize: slices.Contains, min/max, range-over-int, etc.
+
+    # Subtle bug classes.
+    - asasalint          # detects passing []any to func(...any) (almost always a bug)
+    - containedctx       # struct fields must not contain context.Context
+    - durationcheck      # detects time.Duration multiplication mistakes
+    - exhaustive         # switch over enums must be exhaustive
+    - fatcontext         # context derivation inside loops/closures (context leak)
+    - forcetypeassert    # `v := x.(T)` panics without ok-form; require comma-ok
+    - loggercheck        # slog key/value pair mismatches
+    - makezero           # `make([]T, n)` followed by append is usually a bug
+    - mirror             # bytes vs strings API mismatch
+    - nilnesserr         # `if err != nil { return nil }` paired-nil mistake
+    - reassign           # detects reassignment to package-level sentinels (io.EOF, etc.)
+    - recvcheck          # mixed pointer/value receivers
+    - sloglint           # additional slog correctness: key consistency, ctx handling
+    - gocheckcompilerdirectives  # catches typos in //go: directives
+
+    # Dependency policy: see settings.depguard below.
+    - depguard           # stdlib only
+
+    # Security.
+    - asciicheck         # reject non-ASCII identifiers (homoglyph defense)
+    - bidichk            # CVE-2021-42574 unicode bidi attacks
+    - gosec              # general security analyzer (exclusions below)
+
+    # Dead code / redundancy beyond what `unused` catches.
+    - predeclared        # don't shadow predeclared identifiers (e.g. `len`, `error`)
+    - unconvert          # remove redundant type conversions
+    - unparam            # detect unused function parameters
+    - usestdlibvars      # use stdlib constants over literals
+    - wastedassign       # detect assignments whose value is never read
+
+    # Idiom and style: curated, not exhaustive.
+    - gocritic           # diagnostic + performance + style tags only (see settings)
+    - misspell           # English spelling
+    - nolintlint         # //nolint directives must be specific and justified
+    - revive             # opinionated set; rules listed in settings
+
+    # Performance: low-risk, auto-fixable.
+    - perfsprint         # fmt.Sprintf → strconv.* where strictly faster (auto-fix)
+
+    # Tests.
+    - thelper            # test helpers must call t.Helper()
+    - tparallel          # detect tests that should call t.Parallel()
+    - usetesting         # prefer t.Setenv/t.Context/t.TempDir over manual setup
+
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment   # noisy on systems code; address case-by-case
+    revive:
+      severity: warning
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+          arguments:
+            - "checkPrivateReceivers"
+            - "disableStutteringCheck"
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: var-declaration
+        - name: var-naming
+    errcheck:
+      check-type-assertions: true
+    exhaustive:
+      default-signifies-exhaustive: true
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+      disabled-checks:
+        - hugeParam       # noisy for systems code that passes large structs by value
+        - rangeValCopy    # same
+        - unnamedResult   # opinionated; named-vs-unnamed return values is a per-API decision
+    gosec:
+      excludes:
+        - G404            # math/rand is acceptable for non-cryptographic uses
+    misspell:
+      locale: US
+    depguard:
+      rules:
+        stdlib-only:
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/dotwaffle/gocachetrim
+
+  exclusions:
+    rules:
+      # Tests get leeway on error-checks and security analysis (frequent false
+      # positives in test setup), and on revive's exported-doc rules.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - revive
+issues:
+  max-same-issues: 0
+  max-issues-per-linter: 0
+
+formatters:
+  enable:
+    - gofmt
+  settings:
+    gofmt:
+      simplify: true
