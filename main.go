@@ -325,13 +325,13 @@ func trimOnce(ctx context.Context, cfg trim.Config) bool {
 		slog.Bool("stopped", err != nil),
 		slog.Int("scanned", res.Scanned),
 		slog.String("scanned_size", formatSize(res.ScannedBytes)),
-		slog.Int("age_deleted", res.AgeDeleted),
-		slog.String("age_size", formatSize(res.AgeBytes)),
-		slog.Int("size_deleted", res.SizeDeleted),
-		slog.String("size_size", formatSize(res.SizeBytes)),
-		slog.Int("kept_in_use", res.Kept),
-		slog.Int("gone", res.Gone),
-		slog.String("remaining", formatSize(res.Remaining)),
+		slog.Int("expired", res.AgeDeleted),
+		slog.String("expired_size", formatSize(res.AgeBytes)),
+		slog.Int("evicted", res.SizeDeleted),
+		slog.String("evicted_size", formatSize(res.SizeBytes)),
+		slog.Int("used_since_scan", res.Kept),
+		slog.Int("already_gone", res.Gone),
+		slog.String("final_size", formatSize(res.Remaining)),
 		slog.Int("errors", res.Errors),
 		slog.Duration("took", time.Since(start).Round(time.Millisecond)),
 	)
@@ -339,7 +339,7 @@ func trimOnce(ctx context.Context, cfg trim.Config) bool {
 		log.Warn("cache is still over max-size after the trim",
 			slog.String("over_by", formatSize(res.Shortfall)),
 			slog.String("min_age", formatDuration(cfg.MinAge)),
-			slog.Int("kept_in_use", res.Kept),
+			slog.Int("used_since_scan", res.Kept),
 			slog.Int("errors", res.Errors))
 	}
 	return err == nil && res.Errors == 0
