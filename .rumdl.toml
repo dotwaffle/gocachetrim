@@ -1,0 +1,15 @@
+# Markdown style for gocachetrim, checked by rumdl.
+# All default rules are on. MD013 puts each sentence on its own source
+# line, so a prose change does not reflow the lines around it.
+
+[global]
+respect-gitignore = true
+# Do not write a cache directory into the repository.
+cache = false
+
+[MD013]
+reflow = true
+reflow-mode = "sentence-per-line"
+# A large limit turns off wrapping at a column width. Only sentence ends
+# break lines, and a long sentence stays on one line.
+line-length = 100000
