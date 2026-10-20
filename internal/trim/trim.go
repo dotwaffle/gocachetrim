@@ -97,6 +97,7 @@ type Result struct {
 	SizeDeleted  int   // entries deleted because of MaxSize
 	SizeBytes    int64 // total size of the SizeDeleted entries
 	Kept         int   // entries not deleted because they were used after the scan
+	KeptBytes    int64 // total size of the Kept entries
 	Gone         int   // entries that a different process deleted after the scan
 	GoneBytes    int64 // total size of the Gone entries
 	Remaining    int64 // total size after the trim, from the scan and the deletes

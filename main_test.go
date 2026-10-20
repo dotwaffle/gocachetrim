@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dotwaffle/gocachetrim/internal/trim"
 )
 
 func TestParseDuration(t *testing.T) {
@@ -128,5 +131,25 @@ func TestRunExitStatus(t *testing.T) {
 				t.Errorf("stderr does not contain %q:\n%s", tt.wantText, &stderr)
 			}
 		})
+	}
+}
+
+func TestShortfallLevel(t *testing.T) {
+	tests := []struct {
+		shortfall, kept int64
+		errors          int
+		want            slog.Level
+	}{
+		{shortfall: 100, kept: 0, want: slog.LevelWarn},
+		{shortfall: 100, kept: 99, want: slog.LevelWarn},
+		{shortfall: 100, kept: 100, want: slog.LevelInfo},
+		{shortfall: 100, kept: 500, want: slog.LevelInfo},
+		{shortfall: 100, kept: 500, errors: 1, want: slog.LevelWarn},
+	}
+	for _, tt := range tests {
+		res := trim.Result{Shortfall: tt.shortfall, KeptBytes: tt.kept, Errors: tt.errors}
+		if got := shortfallLevel(res); got != tt.want {
+			t.Errorf("shortfallLevel(shortfall %d, kept %d, errors %d) = %v, want %v", tt.shortfall, tt.kept, tt.errors, got, tt.want)
+		}
 	}
 }

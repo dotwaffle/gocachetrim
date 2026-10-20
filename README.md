@@ -87,8 +87,11 @@ A trim does these steps:
    The go command then skips its own trim for 24 hours.
 8. Log a summary of the trim.
 
-If `-max-size` is more than 0 and the cache is still larger than `-max-size` after the trim, the trim logs a warning with the difference.
+If `-max-size` is more than 0 and the cache is still larger than `-max-size` after the trim, the trim logs a message with the difference.
 The cause can be `-min-age`, entries that a build used during the trim, or errors.
+Step 6 keeps the entries that builds use during the trim, so a difference is normal while builds run.
+If the trim had no errors and the difference is not more than the size of these entries, the message is at the info level.
+Otherwise, the message is a warning.
 The default `-min-age` of two hours is the one-hour mtime resolution plus one hour.
 A value less than one hour can delete entries that a running build uses, and gocachetrim then logs a warning at start.
 

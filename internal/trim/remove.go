@@ -37,6 +37,7 @@ func removeAll(ctx context.Context, root *os.Root, plan Plan, workers int, errs 
 			res.SizeDeleted += r.SizeDeleted
 			res.SizeBytes += r.SizeBytes
 			res.Kept += r.Kept
+			res.KeptBytes += r.KeptBytes
 			res.Gone += r.Gone
 			res.GoneBytes += r.GoneBytes
 			mu.Unlock()
@@ -79,6 +80,7 @@ func removeOne(dir *os.Root, v Entry, bySize bool, errs *errorLog, r *Result) {
 	}
 	if fi.ModTime().After(v.MTime) {
 		r.Kept++
+		r.KeptBytes += v.Size
 		return
 	}
 	if fi.IsDir() {

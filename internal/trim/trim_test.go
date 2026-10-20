@@ -423,7 +423,7 @@ func TestRemoveKeepsUsedEntry(t *testing.T) {
 	errs := &errorLog{log: slog.New(slog.DiscardHandler)}
 	sub := openRoot(t, filepath.Join(dir, "00"))
 	removeOne(sub, v, false, errs, &r)
-	if r.Kept != 1 || r.AgeDeleted != 0 || !exists(p) {
+	if r.Kept != 1 || r.KeptBytes != 100 || r.AgeDeleted != 0 || !exists(p) {
 		t.Errorf("removeOne = %+v, exists %v; want entry kept", r, exists(p))
 	}
 

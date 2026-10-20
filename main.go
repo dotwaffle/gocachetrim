@@ -330,17 +330,32 @@ func trimOnce(ctx context.Context, cfg trim.Config) bool {
 		slog.Int("evicted", res.SizeDeleted),
 		slog.String("evicted_size", formatSize(res.SizeBytes)),
 		slog.Int("used_since_scan", res.Kept),
+		slog.String("used_since_scan_size", formatSize(res.KeptBytes)),
 		slog.Int("already_gone", res.Gone),
 		slog.String("final_size", formatSize(res.Remaining)),
 		slog.Int("errors", res.Errors),
 		slog.Duration("took", time.Since(start).Round(time.Millisecond)),
 	)
 	if res.Shortfall > 0 {
-		log.Warn("cache is still over max-size after the trim",
+		log.Log(ctx, shortfallLevel(res), "cache is still over max-size after the trim",
 			slog.String("over_by", formatSize(res.Shortfall)),
 			slog.String("min_age", formatDuration(cfg.MinAge)),
 			slog.Int("used_since_scan", res.Kept),
+			slog.String("used_since_scan_size", formatSize(res.KeptBytes)),
 			slog.Int("errors", res.Errors))
 	}
 	return err == nil && res.Errors == 0
+}
+
+// shortfallLevel returns the log level for a trim that left the cache over
+// max-size. The trim does not delete entries that builds used after the
+// scan, so a shortfall that is not more than their size is normal while
+// builds run. A larger shortfall comes from -min-age or from errors. A
+// trim with errors always gets a warning, because entries that it could
+// not delete can be part of the shortfall.
+func shortfallLevel(res trim.Result) slog.Level {
+	if res.Errors == 0 && res.Shortfall <= res.KeptBytes {
+		return slog.LevelInfo
+	}
+	return slog.LevelWarn
 }
