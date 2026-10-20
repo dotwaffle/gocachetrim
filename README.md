@@ -41,7 +41,7 @@ gocachetrim -daemon
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-cache` | `go env GOCACHE` | The cache directory. |
-| `-max-age` | `3d` | Delete entries not used for this duration. `0` disables the age limit. |
+| `-max-age` | `5d` | Delete entries not used for this duration. `0` disables the age limit. The default is the limit that the go command uses in its own trim. |
 | `-max-size` | `10G` | Delete the oldest entries until the cache is not larger than this size. `0` disables the size limit. |
 | `-min-age` | `2h` | Never delete an entry with an mtime within this duration to meet `-max-size`. |
 | `-size-metric` | `allocated` | Measure sizes as `allocated` disk space or `logical` file size. |

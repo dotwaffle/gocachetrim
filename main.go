@@ -60,7 +60,9 @@ func main() {
 // for a trim error, and 2 for a usage error.
 func run(ctx context.Context, args []string, stderr io.Writer) int {
 	opts := options{
-		maxAge:   durationFlag(3 * day),
+		// The default -max-age is the age limit of the trim of the go
+		// command.
+		maxAge:   durationFlag(5 * day),
 		maxSize:  sizeFlag(10 << 30),
 		minAge:   durationFlag(2 * time.Hour),
 		metric:   "allocated",
