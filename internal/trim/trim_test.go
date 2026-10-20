@@ -132,6 +132,9 @@ func TestSelect(t *testing.T) {
 		{name: "no limits"},
 		{name: "age only", maxAge: 3 * day, wantAge: []int{5}},
 		{name: "age at cutoff", maxAge: 2 * day, wantAge: []int{5}},
+		// The cutoff is one hour before now-maxAge, so entry 2, which is
+		// 3h old, is at the cutoff.
+		{name: "age allows for mtime resolution", maxAge: 2 * time.Hour, wantAge: []int{5, 4, 3}},
 		{name: "max age less than min age", maxAge: time.Hour, maxSize: 5, minAge: 4 * time.Hour, wantAge: []int{5, 4, 3, 2}},
 		{name: "size oldest first", maxSize: 25, minAge: time.Hour, wantSize: []int{5, 4, 3}},
 		{name: "size zero-size entries", sizes: []int64{0, 10, 0, 10, 0}, maxSize: 5, minAge: time.Hour, wantSize: []int{5, 4, 3, 2}},

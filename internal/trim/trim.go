@@ -41,6 +41,11 @@ const (
 // so the go command can skip its trim.
 const goTrimLimit = 5 * 24 * time.Hour
 
+// goMtimeInterval is mtimeInterval from cmd/go/internal/cache. The go
+// command sets the mtime of an entry only if the mtime is at least this
+// old, so the mtime can be this much before the last use.
+const goMtimeInterval = time.Hour
+
 // readmePrefix is the first line of the README that the go command writes
 // in each cache directory. Run refuses to work on a directory without it.
 const readmePrefix = "This directory holds cached build artifacts from the Go build system."
@@ -65,7 +70,9 @@ var (
 // now argument of Select.
 type Limits struct {
 	// MaxAge is the age limit. A trim deletes each entry with an mtime
-	// before Now-MaxAge. Zero disables the age limit.
+	// before Now-MaxAge-1h. The extra hour allows for the resolution of
+	// the mtime, as in the trim of the go command. Zero disables the age
+	// limit.
 	MaxAge time.Duration
 	// MaxSize is the size limit. A trim deletes the oldest entries until
 	// the total size is not more than MaxSize. Zero disables the size
@@ -152,7 +159,7 @@ func compareAge(a, b Entry) int {
 }
 
 // Select sorts entries in place, oldest first, and returns the entries to
-// delete. First it selects each entry with an mtime before now-MaxAge.
+// delete. First it selects each entry with an mtime before now-MaxAge-1h.
 // Then, if the other entries are larger than MaxSize, it selects the
 // oldest of them until the total is not more than MaxSize. It does not
 // select an entry with an mtime after now-MinAge for MaxSize. A zero
@@ -166,7 +173,7 @@ func Select(entries []Entry, now time.Time, l Limits) Plan {
 	if l.MaxAge > 0 {
 		// The result is the index of the first entry with an mtime that
 		// is not before the cutoff.
-		p.ageEnd, _ = slices.BinarySearchFunc(entries, now.Add(-l.MaxAge), func(e Entry, cutoff time.Time) int {
+		p.ageEnd, _ = slices.BinarySearchFunc(entries, now.Add(-l.MaxAge-goMtimeInterval), func(e Entry, cutoff time.Time) int {
 			return e.MTime.Compare(cutoff)
 		})
 	}

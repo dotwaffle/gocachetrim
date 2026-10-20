@@ -87,7 +87,8 @@ A trim does these steps:
 2. Read the names and the file status of all entries in the 256 subdirectories.
    Ignore every other file in the cache, for example `fuzz/`, `README` and `testexpire.txt`.
 3. Sort all entries by mtime, oldest first, then by subdirectory and name.
-4. If `-max-age` is more than 0, select each entry with an mtime before the current time minus `-max-age`.
+4. If `-max-age` is more than 0, select each entry with an mtime before the current time minus `-max-age` minus one hour.
+   The extra hour allows for the one-hour mtime resolution, as in the trim of the go command.
 5. If `-max-size` is more than 0 and the other entries are larger than `-max-size`, select the oldest of them until the total is not larger than `-max-size`.
    Do not select an entry with an mtime after the current time minus `-min-age`.
 6. Delete the selected entries, oldest first in each subdirectory.
