@@ -17,6 +17,10 @@ Type=exec
 # service often does not include the go command, so set -cache.
 ExecStart=%h/go/bin/gocachetrim -daemon -cache %h/.cache/go-build
 Restart=on-failure
+# Status 1 means that the first trim could not start, for example because
+# -cache is not a Go build cache. A restart does not correct this, so
+# leave the unit in the failed state.
+RestartPreventExitStatus=1
 RestartSec=1min
 # A trim of about 300,000 entries has a live heap of about 50MiB and a
 # peak RSS of about 100MiB. GOMEMLIMIT is a soft limit for the Go

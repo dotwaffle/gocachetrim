@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -117,13 +118,17 @@ func TestRunExitStatus(t *testing.T) {
 		{name: "no workers", args: []string{"-workers", "0"}, want: 2, wantText: "-workers"},
 		{name: "zero interval", args: []string{"-daemon", "-interval", "0"}, want: 2, wantText: "-interval"},
 		{name: "not a cache", args: []string{"-cache", t.TempDir()}, want: 1, wantText: "not a Go build cache"},
+		{name: "daemon not a cache", args: []string{"-daemon", "-cache", t.TempDir()}, want: 1, wantText: "first trim could not start"},
 		{name: "ok", args: []string{"-cache", cache}, want: 0, wantText: "trim done"},
 		{name: "low min age warns", args: []string{"-cache", cache, "-min-age", "10m"}, want: 0, wantText: "min-age is less than 1h"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// The timeout stops a daemon that does not exit by itself.
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
 			var stderr bytes.Buffer
-			got := run(t.Context(), tt.args, &stderr)
+			got := run(ctx, tt.args, &stderr)
 			if got != tt.want {
 				t.Errorf("exit status = %d, want %d; stderr:\n%s", got, tt.want, &stderr)
 			}
@@ -151,5 +156,33 @@ func TestShortfallLevel(t *testing.T) {
 		if got := shortfallLevel(res); got != tt.want {
 			t.Errorf("shortfallLevel(shortfall %d, kept %d, errors %d) = %v, want %v", tt.shortfall, tt.kept, tt.errors, got, tt.want)
 		}
+	}
+}
+
+func TestRunMissingCache(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "go-build")
+	tests := []struct {
+		name string
+		args []string
+		want int
+	}{
+		// A one-shot trim cannot do its work, so it fails.
+		{name: "once", args: []string{"-cache", missing}, want: 1},
+		// The daemon waits for the go command to make the cache, so it
+		// runs until ctx is done.
+		{name: "daemon", args: []string{"-daemon", "-cache", missing}, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+			defer cancel()
+			var stderr bytes.Buffer
+			if got := run(ctx, tt.args, &stderr); got != tt.want {
+				t.Errorf("exit status = %d, want %d; stderr:\n%s", got, tt.want, &stderr)
+			}
+			if want := "cache directory does not exist"; !strings.Contains(stderr.String(), want) {
+				t.Errorf("stderr does not contain %q:\n%s", want, &stderr)
+			}
+		})
 	}
 }

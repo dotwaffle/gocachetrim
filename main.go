@@ -18,6 +18,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"math"
 	"os"
@@ -66,32 +67,32 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 		workers:  8,
 		interval: durationFlag(time.Hour),
 	}
-	fs := flag.NewFlagSet("gocachetrim", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() {
-		_, _ = fmt.Fprintf(fs.Output(), "usage: gocachetrim [flags]\n\nTrim the Go build cache by entry age and total size.\n\n")
-		fs.PrintDefaults()
+	flags := flag.NewFlagSet("gocachetrim", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.Usage = func() {
+		_, _ = fmt.Fprintf(flags.Output(), "usage: gocachetrim [flags]\n\nTrim the Go build cache by entry age and total size.\n\n")
+		flags.PrintDefaults()
 	}
-	fs.StringVar(&opts.cache, "cache", "", "cache `dir` (default: go env GOCACHE)")
-	fs.Var(&opts.maxAge, "max-age", "delete entries not used for this `duration` (0 disables)")
-	fs.Var(&opts.maxSize, "max-size", "delete the oldest entries until the cache is not larger than this `size` (0 disables)")
-	fs.Var(&opts.minAge, "min-age", "never delete entries used within this `duration` to meet -max-size")
-	fs.StringVar(&opts.metric, "size-metric", opts.metric, "measure sizes as `allocated` disk space or logical file size")
-	fs.IntVar(&opts.workers, "workers", opts.workers, "number of concurrent scan and delete workers")
-	fs.BoolVar(&opts.daemon, "daemon", false, "trim now, then again at each -interval, until SIGINT or SIGTERM")
-	fs.Var(&opts.interval, "interval", "time between trims in daemon mode")
-	fs.BoolVar(&opts.dryRun, "dry-run", false, "report what would be deleted, but do not delete")
-	fs.BoolVar(&opts.verbose, "v", false, "log debug messages")
-	if err := fs.Parse(args); err != nil {
+	flags.StringVar(&opts.cache, "cache", "", "cache `dir` (default: go env GOCACHE)")
+	flags.Var(&opts.maxAge, "max-age", "delete entries not used for this `duration` (0 disables)")
+	flags.Var(&opts.maxSize, "max-size", "delete the oldest entries until the cache is not larger than this `size` (0 disables)")
+	flags.Var(&opts.minAge, "min-age", "never delete entries used within this `duration` to meet -max-size")
+	flags.StringVar(&opts.metric, "size-metric", opts.metric, "measure sizes as `allocated` disk space or logical file size")
+	flags.IntVar(&opts.workers, "workers", opts.workers, "number of concurrent scan and delete workers")
+	flags.BoolVar(&opts.daemon, "daemon", false, "trim now, then again at each -interval, until SIGINT or SIGTERM")
+	flags.Var(&opts.interval, "interval", "time between trims in daemon mode")
+	flags.BoolVar(&opts.dryRun, "dry-run", false, "report what would be deleted, but do not delete")
+	flags.BoolVar(&opts.verbose, "v", false, "log debug messages")
+	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
 		return 2
 	}
-	metric, err := opts.validate(fs.Args())
+	metric, err := opts.validate(flags.Args())
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "gocachetrim: %v\n", err)
-		fs.Usage()
+		flags.Usage()
 		return 2
 	}
 
@@ -123,7 +124,7 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 		Log:     log.With(slog.String("cache", dir)),
 	}
 	if !opts.daemon {
-		if !trimOnce(ctx, cfg) {
+		if trimOnce(ctx, cfg) != trimOK {
 			return 1
 		}
 		return 0
@@ -284,13 +285,21 @@ func goCacheDir(ctx context.Context) (string, error) {
 	return dir, nil
 }
 
-// daemon trims at each interval until ctx is done.
+// daemon trims at each interval until ctx is done. If the first trim cannot
+// start, for example because the directory is not a Go build cache, daemon
+// returns 1, so that a service manager shows the failure. After the first
+// trim, it logs each failure and continues, because the cause can be
+// temporary. A cache directory that does not exist yet does not stop the
+// daemon.
 func daemon(ctx context.Context, cfg trim.Config, interval time.Duration) int {
 	cfg.Log.Info("daemon started", slog.Duration("interval", interval))
 	t := time.NewTicker(interval)
 	defer t.Stop()
-	for {
-		trimOnce(ctx, cfg)
+	for first := true; ; first = false {
+		if trimOnce(ctx, cfg) == trimFailed && first {
+			cfg.Log.Error("daemon stopped: the first trim could not start")
+			return 1
+		}
 		select {
 		case <-ctx.Done():
 			cfg.Log.Info("daemon stopped")
@@ -300,10 +309,23 @@ func daemon(ctx context.Context, cfg trim.Config, interval time.Duration) int {
 	}
 }
 
-// trimOnce runs one trim and logs the result. It reports false when the
-// trim failed, had errors, or stopped because ctx was done. A cache locked
-// by a different trim is not a failure.
-func trimOnce(ctx context.Context, cfg trim.Config) bool {
+// outcome is the result of trimOnce.
+type outcome int
+
+const (
+	// trimOK means that the trim completed without errors, or that a
+	// different trim held the lock.
+	trimOK outcome = iota
+	// trimIncomplete means that the trim had errors for entries, that ctx
+	// stopped it, or that the cache directory does not exist yet.
+	trimIncomplete
+	// trimFailed means that trim.Run could not start the trim for a
+	// different reason.
+	trimFailed
+)
+
+// trimOnce runs one trim, logs the result, and returns its outcome.
+func trimOnce(ctx context.Context, cfg trim.Config) outcome {
 	log := cfg.Log
 	start := time.Now()
 	cfg.Now = start
@@ -311,14 +333,20 @@ func trimOnce(ctx context.Context, cfg trim.Config) bool {
 	switch {
 	case errors.Is(err, trim.ErrBusy):
 		log.Info("skipped: a different trim is running")
-		return true
+		return trimOK
+	// The go command makes the cache directory at its first build, so a
+	// daemon that starts before then can trim the cache at a later
+	// interval.
+	case errors.Is(err, fs.ErrNotExist):
+		log.Warn("cache directory does not exist", slog.Any("err", err))
+		return trimIncomplete
 	// Run returns an empty Result when ctx is done before the deletes.
 	case errors.Is(err, context.Canceled) && res.Scanned == 0:
 		log.Info("stopped before scan")
-		return false
+		return trimIncomplete
 	case err != nil && !errors.Is(err, context.Canceled):
 		log.Error("trim failed", slog.Any("err", err))
-		return false
+		return trimFailed
 	}
 	log.Info("trim done",
 		slog.Bool("dry_run", cfg.DryRun),
@@ -344,7 +372,10 @@ func trimOnce(ctx context.Context, cfg trim.Config) bool {
 			slog.String("used_since_scan_size", formatSize(res.KeptBytes)),
 			slog.Int("errors", res.Errors))
 	}
-	return err == nil && res.Errors == 0
+	if err != nil || res.Errors > 0 {
+		return trimIncomplete
+	}
+	return trimOK
 }
 
 // shortfallLevel returns the log level for a trim that left the cache over

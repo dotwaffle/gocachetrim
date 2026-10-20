@@ -141,7 +141,9 @@ Read the log with `journalctl --user -u gocachetrim`.
 | 1 | The trim failed, it could not read or delete one or more entries, or a signal stopped a one-shot trim. |
 | 2 | A flag or an argument is not valid. |
 
-In daemon mode, the daemon logs an error in one trim, and starts the next trim at the next interval.
+In daemon mode, if the first trim cannot start, the daemon exits with status 1.
+For example, the first trim cannot start if the directory is not a Go build cache.
+After the first trim, the daemon logs an error in one trim, and starts the next trim at the next interval.
 The daemon exits with status 0 after SIGINT or SIGTERM.
 
 ## Performance
