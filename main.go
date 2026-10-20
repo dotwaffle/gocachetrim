@@ -330,6 +330,7 @@ func trimOnce(ctx context.Context, cfg trim.Config) outcome {
 	start := time.Now()
 	cfg.Now = start
 	res, err := trim.Run(ctx, cfg)
+	stopped := errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 	switch {
 	case errors.Is(err, trim.ErrBusy):
 		log.Info("skipped: a different trim is running")
@@ -341,16 +342,16 @@ func trimOnce(ctx context.Context, cfg trim.Config) outcome {
 		log.Warn("cache directory does not exist", slog.Any("err", err))
 		return trimIncomplete
 	// Run returns an empty Result when ctx is done before the deletes.
-	case errors.Is(err, context.Canceled) && res.Scanned == 0:
-		log.Info("stopped before scan")
+	case stopped && res.Scanned == 0:
+		log.Info("stopped before the deletes")
 		return trimIncomplete
-	case err != nil && !errors.Is(err, context.Canceled):
+	case err != nil && !stopped:
 		log.Error("trim failed", slog.Any("err", err))
 		return trimFailed
 	}
 	log.Info("trim done",
 		slog.Bool("dry_run", cfg.DryRun),
-		slog.Bool("stopped", err != nil),
+		slog.Bool("stopped", stopped),
 		slog.Int("scanned", res.Scanned),
 		slog.String("scanned_size", formatSize(res.ScannedBytes)),
 		slog.Int("expired", res.AgeDeleted),

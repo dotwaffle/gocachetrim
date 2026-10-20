@@ -159,6 +159,24 @@ func TestShortfallLevel(t *testing.T) {
 	}
 }
 
+func TestRunStoppedBeforeDeletes(t *testing.T) {
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	expired, cancel := context.WithDeadline(t.Context(), time.Unix(0, 0))
+	defer cancel()
+	for name, ctx := range map[string]context.Context{"canceled": canceled, "deadline": expired} {
+		t.Run(name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			if got := run(ctx, []string{"-cache", newCache(t)}, &stderr); got != 1 {
+				t.Errorf("exit status = %d, want 1; stderr:\n%s", got, &stderr)
+			}
+			if want := "stopped before the deletes"; !strings.Contains(stderr.String(), want) {
+				t.Errorf("stderr does not contain %q:\n%s", want, &stderr)
+			}
+		})
+	}
+}
+
 func TestRunMissingCache(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "go-build")
 	tests := []struct {
