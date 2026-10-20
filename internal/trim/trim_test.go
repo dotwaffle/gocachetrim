@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"testing"
@@ -516,5 +517,31 @@ func TestWriteTrimTimeCancel(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(p); string(b) != strconv.FormatInt(now.Unix(), 10) {
 		t.Errorf("trim.txt = %q, want %d", b, now.Unix())
+	}
+}
+
+// TestResultAddDeletes sets each field of a Result to 1, and checks that
+// addDeletes adds each count of the delete step. A new field of Result
+// fails this test until addDeletes adds it or the test lists it as a
+// count of a different step.
+func TestResultAddDeletes(t *testing.T) {
+	notDeleteStep := map[string]bool{"Scanned": true, "ScannedBytes": true, "Remaining": true, "Shortfall": true, "Errors": true}
+	var o Result
+	ov := reflect.ValueOf(&o).Elem()
+	for i := range ov.NumField() {
+		ov.Field(i).SetInt(1)
+	}
+	var r Result
+	r.addDeletes(o)
+	rv := reflect.ValueOf(r)
+	for i := range rv.NumField() {
+		name := rv.Type().Field(i).Name
+		want := int64(1)
+		if notDeleteStep[name] {
+			want = 0
+		}
+		if got := rv.Field(i).Int(); got != want {
+			t.Errorf("after addDeletes, %s = %d, want %d", name, got, want)
+		}
 	}
 }

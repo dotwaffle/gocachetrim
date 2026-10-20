@@ -120,6 +120,20 @@ type Result struct {
 	Errors       int   // errors for entries, subdirectories, and trim.txt
 }
 
+// addDeletes adds the counts of the delete step in o to r: the deleted,
+// kept and gone entries. Each worker of removeAll counts in its own
+// Result, so a new count of the delete step must also be added here.
+func (r *Result) addDeletes(o Result) {
+	r.AgeDeleted += o.AgeDeleted
+	r.AgeBytes += o.AgeBytes
+	r.SizeDeleted += o.SizeDeleted
+	r.SizeBytes += o.SizeBytes
+	r.Kept += o.Kept
+	r.KeptBytes += o.KeptBytes
+	r.Gone += o.Gone
+	r.GoneBytes += o.GoneBytes
+}
+
 // Entry is one cache entry found by a scan.
 type Entry struct {
 	Sub   uint8     // subdirectory, named "%02x"

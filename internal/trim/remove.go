@@ -32,14 +32,7 @@ func removeAll(ctx context.Context, root *os.Root, plan Plan, workers int, errs 
 		var r Result
 		defer func() {
 			mu.Lock()
-			res.AgeDeleted += r.AgeDeleted
-			res.AgeBytes += r.AgeBytes
-			res.SizeDeleted += r.SizeDeleted
-			res.SizeBytes += r.SizeBytes
-			res.Kept += r.Kept
-			res.KeptBytes += r.KeptBytes
-			res.Gone += r.Gone
-			res.GoneBytes += r.GoneBytes
+			res.addDeletes(r)
 			mu.Unlock()
 		}()
 		dir, err := openSub(root, sub)
