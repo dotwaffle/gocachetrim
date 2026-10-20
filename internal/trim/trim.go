@@ -60,10 +60,10 @@ var (
 	ErrNotCache = errors.New("not a Go build cache")
 )
 
-// Config is the configuration for one trim of one cache.
-type Config struct {
-	// Dir is the cache directory.
-	Dir string
+// Limits are the limits that select the entries to delete. In the field
+// documentation, Now is the time of the trim: Config.Now for Run, or the
+// now argument of Select.
+type Limits struct {
 	// MaxAge is the age limit. A trim deletes each entry with an mtime
 	// before Now-MaxAge. Zero disables the age limit.
 	MaxAge time.Duration
@@ -74,6 +74,14 @@ type Config struct {
 	// MinAge prevents the size limit from deleting an entry with an mtime
 	// after Now-MinAge. It does not apply to MaxAge.
 	MinAge time.Duration
+}
+
+// Config is the configuration for one trim of one cache.
+type Config struct {
+	// Dir is the cache directory.
+	Dir string
+	// Limits select the entries to delete.
+	Limits Limits
 	// Metric selects how the size of an entry is measured.
 	Metric Metric
 	// Workers is the number of goroutines that scan and delete. Each
@@ -144,34 +152,34 @@ func compareAge(a, b Entry) int {
 }
 
 // Select sorts entries in place, oldest first, and returns the entries to
-// delete. First it selects each entry with an mtime before now-maxAge.
-// Then, if the other entries are larger than maxSize, it selects the
-// oldest of them until the total is not more than maxSize. It does not
-// select an entry with an mtime after now-minAge for maxSize. A zero
-// maxAge or maxSize disables that step.
+// delete. First it selects each entry with an mtime before now-MaxAge.
+// Then, if the other entries are larger than MaxSize, it selects the
+// oldest of them until the total is not more than MaxSize. It does not
+// select an entry with an mtime after now-MinAge for MaxSize. A zero
+// MaxAge or MaxSize disables that step.
 //
 // Because the entries are oldest first, each step selects a range. The
 // age step selects a prefix, and the size step selects the range after it.
-func Select(entries []Entry, now time.Time, maxAge time.Duration, maxSize int64, minAge time.Duration) Plan {
+func Select(entries []Entry, now time.Time, l Limits) Plan {
 	slices.SortFunc(entries, compareAge)
 	p := Plan{Entries: entries, Total: sum(entries)}
-	if maxAge > 0 {
+	if l.MaxAge > 0 {
 		// The result is the index of the first entry with an mtime that
 		// is not before the cutoff.
-		p.ageEnd, _ = slices.BinarySearchFunc(entries, now.Add(-maxAge), func(e Entry, cutoff time.Time) int {
+		p.ageEnd, _ = slices.BinarySearchFunc(entries, now.Add(-l.MaxAge), func(e Entry, cutoff time.Time) int {
 			return e.MTime.Compare(cutoff)
 		})
 	}
 	p.sizeEnd = p.ageEnd
-	if maxSize <= 0 {
+	if l.MaxSize <= 0 {
 		return p
 	}
 	remain := p.Total - sum(p.Age())
-	floor := now.Add(-minAge)
+	floor := now.Add(-l.MinAge)
 	// The first entry after the floor ends the loop, because all the
 	// entries after it are also newer than the floor.
 	for _, e := range entries[p.ageEnd:] {
-		if remain <= maxSize || e.MTime.After(floor) {
+		if remain <= l.MaxSize || e.MTime.After(floor) {
 			break
 		}
 		remain -= e.Size
@@ -217,7 +225,7 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
-	plan := Select(entries, cfg.Now, cfg.MaxAge, cfg.MaxSize, cfg.MinAge)
+	plan := Select(entries, cfg.Now, cfg.Limits)
 	cfg.Log.Debug("scan done", "entries", len(entries), "age_victims", len(plan.Age()), "size_victims", len(plan.Size()))
 
 	res := Result{Scanned: len(entries), ScannedBytes: plan.Total}
@@ -228,11 +236,11 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 		removeAll(ctx, root, plan, cfg.Workers, errs, &res)
 	}
 	res.Remaining = res.ScannedBytes - res.AgeBytes - res.SizeBytes - res.GoneBytes
-	if cfg.MaxSize > 0 {
-		res.Shortfall = max(res.Remaining-cfg.MaxSize, 0)
+	if cfg.Limits.MaxSize > 0 {
+		res.Shortfall = max(res.Remaining-cfg.Limits.MaxSize, 0)
 	}
 
-	if !cfg.DryRun && ctx.Err() == nil && cfg.MaxAge > 0 && cfg.MaxAge <= goTrimLimit {
+	if !cfg.DryRun && ctx.Err() == nil && cfg.Limits.MaxAge > 0 && cfg.Limits.MaxAge <= goTrimLimit {
 		if err := writeTrimTime(ctx, root, cfg.Now); err != nil {
 			errs.report(fmt.Errorf("write trim.txt: %w", err))
 		}

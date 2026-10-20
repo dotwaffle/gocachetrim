@@ -43,7 +43,7 @@ func TestGoBuildAfterTrim(t *testing.T) {
 
 	// All entries are new, so MinAge keeps them, and the trim cannot meet
 	// the size limit.
-	cfg := Config{Dir: cache, MaxSize: 1, MinAge: time.Hour, Metric: Allocated, Workers: 8, Now: time.Now()}
+	cfg := Config{Dir: cache, Limits: Limits{MaxSize: 1, MinAge: time.Hour}, Metric: Allocated, Workers: 8, Now: time.Now()}
 	res, err := Run(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestGoBuildAfterTrim(t *testing.T) {
 	}
 
 	// Two days later, all entries are older than MaxAge.
-	cfg = Config{Dir: cache, MaxAge: 24 * time.Hour, Metric: Allocated, Workers: 8, Now: time.Now().Add(48 * time.Hour)}
+	cfg = Config{Dir: cache, Limits: Limits{MaxAge: 24 * time.Hour}, Metric: Allocated, Workers: 8, Now: time.Now().Add(48 * time.Hour)}
 	res, err = Run(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)

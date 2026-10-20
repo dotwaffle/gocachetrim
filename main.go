@@ -116,10 +116,12 @@ func run(ctx context.Context, args []string, stderr io.Writer) int {
 		}
 	}
 	cfg := trim.Config{
-		Dir:     dir,
-		MaxAge:  time.Duration(opts.maxAge),
-		MaxSize: int64(opts.maxSize),
-		MinAge:  time.Duration(opts.minAge),
+		Dir: dir,
+		Limits: trim.Limits{
+			MaxAge:  time.Duration(opts.maxAge),
+			MaxSize: int64(opts.maxSize),
+			MinAge:  time.Duration(opts.minAge),
+		},
 		Metric:  metric,
 		Workers: opts.workers,
 		DryRun:  opts.dryRun,
@@ -370,7 +372,7 @@ func trimOnce(ctx context.Context, cfg trim.Config) outcome {
 	if res.Shortfall > 0 {
 		log.Log(ctx, shortfallLevel(res), "cache is still over max-size after the trim",
 			slog.String("over_by", formatSize(res.Shortfall)),
-			slog.String("min_age", formatDuration(cfg.MinAge)),
+			slog.String("min_age", formatDuration(cfg.Limits.MinAge)),
 			slog.Int("used_since_scan", res.Kept),
 			slog.String("used_since_scan_size", formatSize(res.KeptBytes)),
 			slog.Int("errors", res.Errors))

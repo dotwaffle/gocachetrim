@@ -76,7 +76,7 @@ func exists(p string) bool {
 }
 
 func baseConfig(dir string) Config {
-	return Config{Dir: dir, Metric: Logical, Workers: 4, Now: now, MinAge: 2 * time.Hour}
+	return Config{Dir: dir, Limits: Limits{MinAge: 2 * time.Hour}, Metric: Logical, Workers: 4, Now: now}
 }
 
 func TestIsEntryName(t *testing.T) {
@@ -155,7 +155,7 @@ func TestSelect(t *testing.T) {
 					total += size
 				}
 			}
-			p := Select(in, now, tt.maxAge, tt.maxSize, tt.minAge)
+			p := Select(in, now, Limits{MaxAge: tt.maxAge, MaxSize: tt.maxSize, MinAge: tt.minAge})
 			if got := ids(p.Age()); !slices.Equal(got, tt.wantAge) {
 				t.Errorf("Age = %v, want %v", got, tt.wantAge)
 			}
@@ -186,7 +186,7 @@ func TestSelectTieOrder(t *testing.T) {
 		{Sub: 1, Name: entryName(1, 'd'), MTime: mt, Size: 1},
 	}
 	want := []Entry{entries[2], entries[1]}
-	p := Select(entries, now, 0, 1, 0)
+	p := Select(entries, now, Limits{MaxSize: 1})
 	if !slices.Equal(p.Size(), want) {
 		t.Errorf("Size = %v, want %v", p.Size(), want)
 	}
@@ -200,8 +200,8 @@ func TestRunAgeAndSize(t *testing.T) {
 	oldest := put(t, dir, "ff/"+entryName(4, 'd'), 100, 4*day)
 
 	cfg := baseConfig(dir)
-	cfg.MaxAge = 3 * day
-	cfg.MaxSize = 150
+	cfg.Limits.MaxAge = 3 * day
+	cfg.Limits.MaxSize = 150
 	res, err := Run(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -229,7 +229,7 @@ func TestRunShortfall(t *testing.T) {
 	old := put(t, dir, "02/"+entryName(3, 'd'), 100, 5*time.Hour)
 
 	cfg := baseConfig(dir)
-	cfg.MaxSize = 50
+	cfg.Limits.MaxSize = 50
 	res, err := Run(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -267,9 +267,9 @@ func TestRunIgnoresOtherFiles(t *testing.T) {
 	keep = append(keep, adir)
 
 	cfg := baseConfig(dir)
-	cfg.MaxAge = day
-	cfg.MaxSize = 1
-	cfg.MinAge = 0
+	cfg.Limits.MaxAge = day
+	cfg.Limits.MaxSize = 1
+	cfg.Limits.MinAge = 0
 	res, err := Run(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -291,7 +291,7 @@ func TestRunExecutable(t *testing.T) {
 	setAge(t, exe, 4*day)
 
 	cfg := baseConfig(dir)
-	cfg.MaxAge = 3 * day
+	cfg.Limits.MaxAge = 3 * day
 	res, err := Run(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -346,7 +346,7 @@ func TestRunTrimTime(t *testing.T) {
 				t.Fatal(err)
 			}
 			cfg := baseConfig(dir)
-			cfg.MaxAge = tt.maxAge
+			cfg.Limits.MaxAge = tt.maxAge
 			cfg.DryRun = tt.dryRun
 			if _, err := Run(t.Context(), cfg); err != nil {
 				t.Fatal(err)
@@ -366,7 +366,7 @@ func TestRunDryRun(t *testing.T) {
 	dir := newCache(t)
 	p := put(t, dir, "00/"+entryName(1, 'd'), 100, 4*day)
 	cfg := baseConfig(dir)
-	cfg.MaxAge = day
+	cfg.Limits.MaxAge = day
 	cfg.DryRun = true
 	res, err := Run(t.Context(), cfg)
 	if err != nil {
@@ -450,7 +450,7 @@ func TestRunStaysInCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := baseConfig(dir)
-	cfg.MaxAge = day
+	cfg.Limits.MaxAge = day
 	res, err := Run(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
